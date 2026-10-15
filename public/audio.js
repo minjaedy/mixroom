@@ -1,11 +1,14 @@
-export function peaks(buffer,count=420){const a=buffer.getChannelData(0),out=[],step=Math.max(1,Math.floor(a.length/count));for(let i=0;i<count;i++){let max=0;for(let j=i*step;j<Math.min(a.length,(i+1)*step);j+=Math.max(1,Math.floor(step/100)))max=Math.max(max,Math.abs(a[j]));out.push(max);}return out;}
+export function peaks(buffer,count=420,start=0,end=buffer.duration){
+  const samples=buffer.getChannelData(0),out=[],rate=buffer.sampleRate||samples.length/buffer.duration,first=start*rate,step=(end-start)*rate/count;
+  for(let i=0;i<count;i++){let max=0;const from=Math.max(0,Math.floor(first+i*step)),to=Math.min(samples.length,Math.ceil(first+(i+1)*step));for(let j=from;j<to;j+=Math.max(1,Math.floor(step/100)))max=Math.max(max,Math.abs(samples[j]));out.push(max);}return out;
+}
 export class CompareAudio{
   constructor(onTick){this.ctx=null;this.buffers={A:null,B:null};this.sources=[];this.selected='B';this.position=0;this.playing=false;this.range={start:0,end:0};this.loop=false;this.offset=0;this.volume=.8;this.onTick=onTick;this.frame=null;}
   context(){return this.ctx||(this.ctx=new AudioContext());}
   async decode(bytes){return this.context().decodeAudioData(bytes);}
   duration(){const a=this.buffers.A?.duration||0,b=Math.max(0,(this.buffers.B?.duration||0)-this.offset);return a&&b?Math.min(a,b):a||b;}
   time(){if(!this.playing)return this.position;let t=this.position+(this.ctx.currentTime-this.started);if(this.loop&&this.range.end>this.range.start&&t>=this.range.end)t=this.range.start+(t-this.range.start)%(this.range.end-this.range.start);return Math.min(this.duration(),t);}
-  setBuffers(a,b){this.pause();this.buffers={A:a,B:b};this.position=0;this.offset=0;this.range={start:0,end:Math.min(12,this.duration())};}
+  setBuffers(a,b){this.pause();this.buffers={A:a,B:b};this.position=0;this.offset=0;this.loop=false;this.range={start:0,end:this.duration()};}
   async play(){if(this.playing||!this.duration())return;await this.context().resume();if(this.position>=this.duration())this.position=this.loop?this.range.start:0;if(this.loop&&(this.position<this.range.start||this.position>=this.range.end))this.position=this.range.start;this.started=this.ctx.currentTime+.03;this.playing=true;this.sources=[];for(const key of ['A','B']){const buffer=this.buffers[key];if(!buffer)continue;const source=this.ctx.createBufferSource(),gain=this.ctx.createGain(),offset=key==='B'?this.offset:0;source.buffer=buffer;source.loop=this.loop;source.loopStart=Math.max(0,this.range.start+offset);source.loopEnd=Math.max(source.loopStart+.05,this.range.end+offset);gain.gain.value=key===this.selected?this.volume:0;source.connect(gain).connect(this.ctx.destination);const seek=this.position+offset;source.start(this.started+Math.max(0,-seek),Math.max(0,seek));this.sources.push({source,gain,key});}this.tick();}
   tick(){cancelAnimationFrame(this.frame);this.onTick?.(Math.max(0,this.time()));if(this.playing&&!this.loop&&this.time()>=this.duration()){this.pause();this.onTick?.(this.position);return;}if(this.playing)this.frame=requestAnimationFrame(()=>this.tick());}
   pause(){const t=this.time();this.playing=false;this.position=t;this.sources.forEach(({source})=>{try{source.stop();}catch{}source.disconnect();});this.sources=[];cancelAnimationFrame(this.frame);}

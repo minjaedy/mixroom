@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {sendsChatOnEnter,bindChatKeyboard,receivedMessageIds} from '../public/chat.js';
+import {sendsChatOnEnter,bindChatKeyboard,receivedMessageIds,keepReadReceipts} from '../public/chat.js';
 test('chat Enter sends, Shift+Enter and Korean IME confirmation do not',()=>{
   assert.equal(sendsChatOnEnter({key:'Enter'}),true);
   for(const event of [{shiftKey:true},{isComposing:true},{keyCode:229},{ctrlKey:true},{altKey:true},{metaKey:true}])assert.equal(sendsChatOnEnter({key:'Enter',...event}),false);
@@ -20,4 +20,9 @@ test('reaching latest chat acknowledges earlier received messages in the loaded 
   assert.deepEqual(receivedMessageIds(messages,'engineer',visible,false),['latest']);
   assert.deepEqual(receivedMessageIds(messages,'engineer',visible,true),['old','latest']);
   assert.deepEqual(receivedMessageIds(messages,'client',visible,true),['own']);
+});
+
+test('a delayed snapshot cannot revert a known receipt or resurrect deleted messages',()=>{
+  const previous=[{id:'read',read_at:123},{id:'deleted',read_at:456}];
+  assert.deepEqual(keepReadReceipts([{id:'read',read_at:null},{id:'new',read_at:null}],previous),[{id:'read',read_at:123},{id:'new',read_at:null}]);
 });

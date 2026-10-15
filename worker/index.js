@@ -25,7 +25,7 @@ async function maintenance(env,origin){
 async function api(request,env,ctx){
   const url=new URL(request.url),path=url.pathname,method=request.method,origin=env.APP_URL||url.origin;
   if(!['GET','HEAD'].includes(method)&&request.headers.get('Origin')&&![url.origin,env.APP_ORIGIN].includes(request.headers.get('Origin')))fail('다른 사이트의 요청은 허용되지 않아요.',403);
-  if(path==='/api/storage'&&method==='GET'){const user=await session(env,request);if(!user)fail('접속해 주세요.',401);requireEngineer(user);const usage=await q(env,'SELECT COALESCE(SUM(expected_bytes),0) AS bytes FROM audio_objects').first();return json({bytes:usage.bytes,capacity:AUDIO_CAPACITY});}
+  if(path==='/api/storage'&&method==='GET'){const user=await session(env,request);if(!user)fail('접속해 주세요.',401);requireEngineer(user);const usage=await q(env,"SELECT COALESCE(SUM(expected_bytes),0) AS bytes,COALESCE(SUM(CASE WHEN state='deleting' THEN expected_bytes ELSE 0 END),0) AS deletingBytes,COALESCE(SUM(CASE WHEN state='uploading' THEN expected_bytes ELSE 0 END),0) AS uploadingBytes FROM audio_objects").first();return json({...usage,capacity:AUDIO_CAPACITY});}
   if(path==='/api/config')return json({setup:!(await q(env,'SELECT id FROM engineers LIMIT 1').first()),push:!!env.VAPID_PUBLIC_KEY,publicKey:env.VAPID_PUBLIC_KEY||null});
   if(path==='/api/setup'&&method==='POST'){
     await limited(env,request,'setup',6);const b=await body(request);if(!env.SETUP_CODE_HASH||!equal(await hash(String(b.code||'')),env.SETUP_CODE_HASH))fail('초기 설정 코드를 확인해 주세요.',403);
@@ -43,6 +43,28 @@ async function api(request,env,ctx){
   if(!['GET','HEAD','PUT'].includes(method))await limited(env,request,'write:'+principal(s),180);
   if(path==='/api/logout'&&method==='POST'){await q(env,'DELETE FROM sessions WHERE hash=?',s.hash).run();return json({ok:true},200,{'Set-Cookie':'mixroom=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0'});}
   if(path==='/api/me')return json({role:s.role,name:s.role==='engineer'?(await q(env,"SELECT name FROM engineers WHERE id='owner'").first()).name:(await project(env,s,s.project_id)).client_name,projectId:s.project_id});
+  if(path==='/api/storage/files'&&method==='GET'){
+    requireEngineer(s);
+    const files=(await q(env,"SELECT v.id,v.project_id,v.number,v.label,v.file_name,v.bytes,v.created_at,v.uploaded_by,p.title AS project_title,p.client_name,p.status AS project_status FROM versions v JOIN projects p ON p.id=v.project_id WHERE v.deleted_at IS NULL AND p.status IN ('active','completed') ORDER BY v.bytes DESC,v.created_at DESC").all()).results;
+    return json({files});
+  }
+  if(path==='/api/storage/files/delete'&&method==='POST'){
+    requireEngineer(s);const b=await body(request);
+    if(!Array.isArray(b.ids)||!b.ids.length||b.ids.length>100||b.ids.some(id=>typeof id!=='string'||!/^[a-f0-9-]{36}$/.test(id)))fail('삭제할 음원을 1~100개 선택해 주세요.');
+    const ids=JSON.stringify([...new Set(b.ids)]),files=(await q(env,'SELECT id,project_id,object_key,bytes FROM versions WHERE id IN (SELECT value FROM json_each(?))',ids).all()).results;
+    if(files.length!==JSON.parse(ids).length)fail('선택한 음원을 찾을 수 없어요. 목록을 새로고침해 주세요.',404);
+    const projectIds=[...new Set(files.map(file=>file.project_id))],keys=JSON.stringify(files.map(file=>file.object_key));
+    await env.DB.batch([
+      q(env,"UPDATE versions SET deleted_at=COALESCE(deleted_at,?),file_name='',label='삭제된 버전',note='',bytes=0 WHERE id IN (SELECT value FROM json_each(?))",Date.now(),ids),
+      q(env,"UPDATE audio_objects SET state='deleting' WHERE key IN (SELECT value FROM json_each(?))",keys),
+      q(env,"UPDATE requests SET resolved_version_id=NULL,status=CASE WHEN status IN ('resolved','confirmed') THEN 'open' ELSE status END WHERE resolved_version_id IN (SELECT value FROM json_each(?))",ids),
+      q(env,"DELETE FROM notifications WHERE type='version' AND target_id IN (SELECT value FROM json_each(?))",ids),
+      signalStatement(env,'engineer'),...projectIds.map(id=>signalStatement(env,id))
+    ]);
+    let pending=false;try{await env.AUDIO.delete(files.map(file=>file.object_key));}catch{pending=true;ctx.waitUntil(maintenance(env,origin).catch(()=>{}));}
+    ctx.waitUntil(flushSignals(env).catch(()=>{}));
+    return json({ok:true,deleted:files.length,bytes:files.reduce((total,file)=>total+file.bytes,0),audioDeletionPending:pending});
+  }
   if(path==='/api/projects'&&method==='GET'){const rows=(await (s.role==='engineer'?q(env,"SELECT * FROM projects WHERE status!='deleting' ORDER BY updated_at DESC"):q(env,'SELECT * FROM projects WHERE id=?',s.project_id)).all()).results;return json({projects:rows.map(publicProject)});}
   if(path==='/api/projects'&&method==='POST'){
     requireEngineer(s);const b=await body(request),title=cleanText(b.title,100),client=cleanText(b.client,60);if(!title||!client)fail('프로젝트 이름과 고객 표시 이름을 입력해 주세요.');const id=uid(),code=token().slice(0,32),now=Date.now();await q(env,'INSERT INTO projects(id,title,client_name,description,invite_hash,created_at,updated_at) VALUES(?,?,?,?,?,?,?)',id,title,client,cleanText(b.description,1000),await hash(code),now,now).run();return json({id,code:code.match(/.{1,4}/g).join('-')},201);
@@ -63,7 +85,7 @@ async function api(request,env,ctx){
     }else if(b.projectId!==undefined){
       if(typeof b.projectId!=='string'||b.kind!=='chat'||!Number.isSafeInteger(b.through)||b.through<0||b.through>now)fail('읽은 범위를 확인해 주세요.');
       await project(env,s,b.projectId);
-      await q(env,"UPDATE notifications SET read_at=? WHERE recipient=? AND project_id=? AND type='message' AND target_id IS NULL AND created_at<=? AND read_at IS NULL",now,recipient,b.projectId,b.through).run();
+      await env.DB.batch([q(env,"UPDATE notifications SET read_at=? WHERE recipient=? AND project_id=? AND type='message' AND target_id IS NULL AND created_at<=? AND read_at IS NULL",now,recipient,b.projectId,b.through),q(env,"UPDATE messages SET read_at=? WHERE project_id=? AND role<>? AND request_id IS NULL AND created_at<=? AND read_at IS NULL",now,b.projectId,s.role,b.through),signalStatement(env,'engineer'),signalStatement(env,b.projectId)]);ctx.waitUntil(flushSignals(env).catch(()=>{}));
     }else if(b.all===true){await q(env,'UPDATE notifications SET read_at=? WHERE recipient=? AND read_at IS NULL',now,recipient).run();}
     else fail('읽을 알림을 선택해 주세요.');
     return json({ok:true});
@@ -111,7 +133,12 @@ async function api(request,env,ctx){
     const now=Date.now(),result=await q(env,'UPDATE messages SET read_at=? WHERE project_id=? AND role<>? AND request_id IS NULL AND read_at IS NULL AND id IN (SELECT value FROM json_each(?)) RETURNING id',now,id,s.role,JSON.stringify([...new Set(b.ids)])).all();
     return json({ids:result.results.map(m=>m.id),readAt:now});
   }
-  if(action==='messages'&&method==='POST'){await project(env,s,id,true);const b=await body(request),text=cleanText(b.text);if(!text)fail('메시지를 입력해 주세요.');if(b.requestId&&!await q(env,'SELECT id FROM requests WHERE id=? AND project_id=?',String(b.requestId),id).first())fail('수정 요청을 찾을 수 없어요.');await notifyBatch(env,ctx,origin,[q(env,'INSERT INTO messages(id,project_id,request_id,role,text,created_at) VALUES(?,?,?,?,?,?)',uid(),id,b.requestId||null,s.role,text,Date.now())],p,s.role==='engineer'?'client:'+id:'engineer','message','프로젝트에 새 메시지가 도착했어요.',b.requestId||null);return json({ok:true},201);}
+  if(action==='messages'&&method==='POST'){
+    await project(env,s,id,true);const b=await body(request),text=cleanText(b.text),now=Date.now();if(!text)fail('메시지를 입력해 주세요.');if(b.requestId&&!await q(env,'SELECT id FROM requests WHERE id=? AND project_id=?',String(b.requestId),id).first())fail('수정 요청을 찾을 수 없어요.');
+    const through=b.readThrough??now;if(!Number.isSafeInteger(through)||through<0||through>now)fail('읽은 시점을 확인해 주세요.');
+    const reads=b.requestId?[]:[q(env,'UPDATE messages SET read_at=? WHERE project_id=? AND role<>? AND request_id IS NULL AND created_at<=? AND read_at IS NULL',now,id,s.role,through)];
+    await notifyBatch(env,ctx,origin,[...reads,q(env,'INSERT INTO messages(id,project_id,request_id,role,text,created_at) VALUES(?,?,?,?,?,?)',uid(),id,b.requestId||null,s.role,text,now)],p,s.role==='engineer'?'client:'+id:'engineer','message','프로젝트에 새 메시지가 도착했어요.',b.requestId||null);return json({ok:true},201);
+  }
   fail('요청을 찾을 수 없어요.',404);
 }
 export default {
