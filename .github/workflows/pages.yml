@@ -2,7 +2,7 @@ name: Deploy MIXROOM
 on:
   push:
     branches: [main]
-    paths: ['public/**', '.github/workflows/pages.yml']
+    paths: ['public/**', 'scripts/build-pages.mjs', '.github/workflows/pages.yml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -19,10 +19,12 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
+      - name: Stamp app version and assets
+        run: node scripts/build-pages.mjs
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: public
+          path: dist-site
       - name: Deploy
         id: deployment
         uses: actions/deploy-pages@v4

@@ -38,6 +38,8 @@ npm run dev
 - 메뉴·상단 종 아이콘의 안 읽은 알림 숫자(최대 `99+`), 고객/관리자별 읽음 상태
 - 알림 선택 시 채팅방·수정 구간·답변·해당 음원 버전으로 이동. 채팅방을 열면 그 방에서 확인한 알림만 읽음 처리
 - 프로젝트 완료(읽기 전용), 초대 재발급, 고객 접속 종료와 데이터 삭제
+- 관리자 최초 등록·고객 초대·고객 첫 입장부터 시작하는 역할별 사진 가이드.
+- 새 앱 배포 자동 감지: 60초마다, 앱에 돌아왔을 때 확인. 작성·업로드·다운로드·재생·열린 대화상자가 끝난 뒤 적용하고 로그인과 현재 프로젝트/메뉴를 유지.
 - 아이폰/안드로이드 설치 및 알림 안내. 공식 실제 화면·앱 캡처·재현 이미지 구분
 
 메인 파일: `worker/index.js`, `worker/security.js`, `worker/push.js`, `public/app.js`, `public/audio.js`, `public/guide.js`.
@@ -56,7 +58,7 @@ npm run dev
 
 ## 서버 구성과 배포
 
-- GitHub Pages: 공개 저장소의 public 폴더만 배포. 앱·설치 가이드·PWA.
+- GitHub Pages: public을 scripts/build-pages.mjs로 빌드한 dist-site만 배포. 커밋 버전과 JS/CSS 주소를 함께 갱신. 앱·설치 가이드·PWA.
 - Cloudflare Workers/D1: 권한, 고객/프로젝트, 수정 요청, 채팅, 알림, 원본 음원 조각.
 - Firebase Realtime Database + 커스텀 인증: 고객별 변경 신호를 실시간 전달. 실제 데이터는 권한 검증을 거쳐 API에서 조회하며 D1이 원본입니다. 변경 신호에는 대화·파일·고객 이름이 포함되지 않습니다.
 - Web Push: 기기에 새 버전·수정 요청·메시지 알림. 앱 안 읽음 상태와 별개이며 각 기기에서 허용해야 합니다.
@@ -87,6 +89,9 @@ Firebase 프로젝트: mixroom-minjaedy. 규칙 배포는 `npx firebase-tools de
 - WebKit: https://webkit.org/blog/13878/web-push-for-web-apps-on-ios-and-ipados/
 - Google web.dev: https://web.dev/learn/pwa/installation (CC BY 4.0, 원본 그대로)
 - 한국어 메뉴·권한창 SVG: 직접 제작한 안내용 재현
+- `start-entry.jpg`, `start-admin.jpg`: 입력란이 비어 있는 실제 입장·등록 화면 캡처. `start-customers.jpg`, `start-invite.jpg`: 실제 데모 화면이며 표시된 고객·코드는 예시.
 - `app-review.jpg`, `app-notifications.jpg`, `app-notifications-mobile.jpg`: MIXROOM 데모 실제 브라우저 캡처 (모바일 이미지는 브라우저 너비를 조절해 촬영)
 
 이미지에 출처·예시 여부를 표시했고, 공식 화면에 등장하는 다른 앱이 MIXROOM의 실기기 화면인 것처럼 설명하지 않습니다.
+
+앱 자동 업데이트는 GitHub Pages 빌드에서 생성된 version.json과 HTML 버전이 모두 같을 때만 적용합니다. 통신 실패 시 현재 화면을 유지합니다. 이 기능을 처음 도입하기 전에 열어 둔 탭은 한 번 직접 새로고침해야 하며, 이후 배포부터 자동 적용됩니다.

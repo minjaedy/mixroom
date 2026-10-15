@@ -7,3 +7,4 @@ test-results/
 .env.*
 .dev.vars.*
 *.log
+dist-site/
