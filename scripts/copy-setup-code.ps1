@@ -1,7 +1,7 @@
 $ErrorActionPreference = 'Stop'
 $taskRoot = Split-Path -Parent $PSScriptRoot
 $protectedPath = Join-Path $taskRoot '.local/production-setup-code.dpapi'
-$secureCode = Get-Content -LiteralPath $protectedPath -Raw | ConvertTo-SecureString
+$secureCode = (Get-Content -LiteralPath $protectedPath -Raw).Trim() | ConvertTo-SecureString
 $pointer = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secureCode)
 try {
   Set-Clipboard -Value ([Runtime.InteropServices.Marshal]::PtrToStringBSTR($pointer))
