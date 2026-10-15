@@ -10,7 +10,7 @@ export async function deliver(env,origin){
   for(const j of jobs){
     const claim=await env.DB.prepare("UPDATE push_jobs SET state='sending',lease_until=?,attempts=attempts+1 WHERE id=? AND lease_until<? AND state!='sent'").bind(now+90000,j.id,now).run();if(!claim.meta.changes)continue;
     try{
-      const subscription=JSON.parse(j.subscription),req=webpush.generateRequestDetails(subscription,JSON.stringify({title:'MIXROOM',body:j.title,tag:j.notification_id,url:'/?notification='+encodeURIComponent(j.notification_id)}),{TTL:86400,vapidDetails:{subject:origin,publicKey:env.VAPID_PUBLIC_KEY,privateKey:env.VAPID_PRIVATE_KEY}});
+      const subscription=JSON.parse(j.subscription),req=webpush.generateRequestDetails(subscription,JSON.stringify({title:'MIXROOM',body:j.title,tag:j.notification_id,url:new URL('?notification='+encodeURIComponent(j.notification_id),env.APP_URL||origin).href}),{TTL:86400,vapidDetails:{subject:origin,publicKey:env.VAPID_PUBLIC_KEY,privateKey:env.VAPID_PRIVATE_KEY}});
       const response=await fetch(req.endpoint,{method:'POST',headers:req.headers,body:req.body,redirect:'manual',signal:AbortSignal.timeout(15000)});
       if(response.status===404||response.status===410){await env.DB.prepare('DELETE FROM subscriptions WHERE subscription=?').bind(j.subscription).run();continue;}
       if(!response.ok)throw Error('provider rejected');

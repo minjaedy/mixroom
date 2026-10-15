@@ -1,0 +1,30 @@
+{
+  "name": "mixroom-studio",
+  "main": "worker/index.js",
+  "account_id": "06bada574d14a5e1d912f35b4645f695",
+  "compatibility_date": "2026-10-01",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "workers_dev": true,
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "mixroom-studio",
+      "database_id": "2b1b374d-4197-4003-87c5-efdd8912ce4b",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "vars": {
+    "APP_ORIGIN": "https://minjaedy.github.io",
+    "APP_URL": "https://minjaedy.github.io/mixroom/",
+    "FIREBASE_PROJECT_ID": "mixroom-minjaedy",
+    "FIREBASE_DATABASE_URL": "https://mixroom-minjaedy-default-rtdb.asia-southeast1.firebasedatabase.app",
+    "FIREBASE_API_KEY": "AIzaSyD6IUIf-FpI5KCqAYMe0kFik7ZEyp3HOmI"
+  },
+  "triggers": {
+    "crons": [
+      "*/2 * * * *"
+    ]
+  }
+}

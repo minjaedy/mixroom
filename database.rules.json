@@ -1,0 +1,1 @@
+{"rules":{".read":false,".write":false,"signals":{"engineer":{".read":"auth != null && auth.token.role === 'engineer' && auth.token.validUntil > now"},"clients":{"$project":{".read":"auth != null && auth.token.role === 'client' && auth.token.projectId === $project && auth.token.validUntil > now"}}}}}
