@@ -77,7 +77,7 @@ async function openNotification(id){
     const r=S.data.requests.find(r=>r.id===n.target_id);
     if(!r)throw Error('이 수정 요청은 삭제되었어요.');
     S.a=r.version_id;S.b=r.resolved_version_id||S.data.versions[0]?.id;
-    if($('#version-A')&&S.a&&S.b){
+    if($('#version-A')&&S.a&&S.b&&S.data.versions.some(v=>v.id===S.a)){
       $('#version-A').value=S.a;$('#version-B').value=S.b;await loadAudio();
       if(S.audioReady){
         if(r.end>audio.duration()){S.b=S.a;$('#version-B').value=S.b;await loadAudio();}
