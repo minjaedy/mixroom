@@ -25,6 +25,7 @@ try{
   check(data.versions.length===0&&data.requests[0].text==='Keep this request'&&data.messages.some(m=>m.text==='Keep this chat'),'bulk deletion preserves request and chat records');
   check(data.requests[0].status==='open'&&!data.requests[0].resolved_version_id,'deleting resolved version reopens linked request');
   check((await api('/storage/files',admin)).data.files.some(v=>v.id===keep),'unselected project audio is retained');
+  if(result.data.audioDeletionPending)await fetch(origin+'/cdn-cgi/local/scheduled');
   check(before-(await api('/storage',admin)).data.bytes===2*bytes.length,'storage capacity is released for all selected audio');
   check((await api('/storage/files/delete',admin,{ids:[first,revision]})).status===200,'repeated bulk deletion is safe');
   const r=await fetch(origin+'/api/projects/'+p.id+'/versions/'+first+'/audio',{headers:{Cookie:admin,Range:'bytes=0-9'}});check(r.status===404,'deleted audio is no longer downloadable');

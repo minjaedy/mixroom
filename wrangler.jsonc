@@ -18,11 +18,36 @@
       "database_name": "mixroom-studio",
       "database_id": "local-mixroom",
       "migrations_dir": "migrations"
+    },
+    {
+      "binding": "AUDIO_DB_1",
+      "database_name": "mixroom-audio-1",
+      "database_id": "local-mixroom-audio-1",
+      "migrations_dir": "audio-migrations"
+    },
+    {
+      "binding": "AUDIO_DB_2",
+      "database_name": "mixroom-audio-2",
+      "database_id": "local-mixroom-audio-2",
+      "migrations_dir": "audio-migrations"
+    },
+    {
+      "binding": "AUDIO_DB_3",
+      "database_name": "mixroom-audio-3",
+      "database_id": "local-mixroom-audio-3",
+      "migrations_dir": "audio-migrations"
+    },
+    {
+      "binding": "AUDIO_DB_4",
+      "database_name": "mixroom-audio-4",
+      "database_id": "local-mixroom-audio-4",
+      "migrations_dir": "audio-migrations"
     }
   ],
   "triggers": {
     "crons": [
-      "*/2 * * * *"
+      "*/2 * * * *",
+      "1-59/2 * * * *"
     ]
   },
   "vars": {

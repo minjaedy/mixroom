@@ -10,7 +10,7 @@ for(const item of await fs.readdir(output)){const filename=path.join(output,item
     source=source.replace(/((?:src|href)=["'])(\.\/[^"'?]+\.(?:js|css|webmanifest))(["'])/g,`$1$2?v=${version}$3`);
   }else if(item.endsWith('.js'))source=source.replace(/(from\s*['"])(\.\/[^'"?]+\.js)(['"])/g,`$1$2?v=${version}$3`);
   else source=source.replace(/(url\(['"]?)(\.\/[^'"?)]+\.css)(['"]?\))/g,`$1$2?v=${version}$3`);
-  if(item==='sw.js')source='// Build '+version+'\n'+source;
+  if(item==='sw.js')source='// Build '+version+'\n'+source.replace("importScripts('./badge-core.js')","importScripts('./badge-core.js?v="+version+"')");
   await fs.writeFile(filename,source);
 }
 await fs.writeFile(path.join(output,'version.json'),JSON.stringify({version})+'\n');

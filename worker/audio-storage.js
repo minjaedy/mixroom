@@ -1,10 +1,13 @@
 import {Buffer} from 'node:buffer';
-// Base64 rows stay below D1's 2 MB row limit. Reserve space for encoding and DB records.
-export const AUDIO_CAPACITY=320*1024*1024;
+import {AUDIO_CAPACITY} from '../public/policy.js';
+// Split every chunk evenly across four dedicated databases. Each holds at most
+// ~342 MiB of encoded audio at the 1 GiB total limit, below D1's 500 MB limit.
+export {AUDIO_CAPACITY};
 export const CHUNK=512*1024;
 export const READ_CHUNK=2*1024*1024;
 const query=(env,sql,...args)=>env.DB.prepare(sql).bind(...args);
 const fault=(message,status=400)=>Object.assign(Error(message),{status});
+export function fragmentRange(length,index){return [Math.floor(length*index/4),Math.floor(length*(index+1)/4)];}
 
 export function parseRange(header,size){
   if(!header)return null;
@@ -18,20 +21,32 @@ export function parseRange(header,size){
 }
 export class D1AudioStorage {
   constructor(env){this.env=env;}
+  shards(){const databases=[1,2,3,4].map(i=>this.env['AUDIO_DB_'+i]);if(databases.some(db=>!db))throw fault('음원 저장공간을 준비 중이에요.',503);return databases;}
   async createMultipartUpload(key,options){
+    this.shards();
     const size=Number(options.customMetadata.bytes),uploadId=crypto.randomUUID();
-    const result=await query(this.env,"INSERT INTO audio_objects(key,upload_id,project_id,expected_bytes,created_at) SELECT ?,?,?,?,? WHERE (SELECT COALESCE(SUM(expected_bytes),0) FROM audio_objects)+?<=? AND EXISTS(SELECT 1 FROM projects WHERE id=? AND status='active')",key,uploadId,key.split('/')[0],size,Date.now(),size,AUDIO_CAPACITY,key.split('/')[0]).run();
+    const result=await query(this.env,"INSERT INTO audio_objects(key,upload_id,project_id,expected_bytes,created_at,layout) SELECT ?,?,?,?,?,1 WHERE (SELECT COALESCE(SUM(expected_bytes),0) FROM audio_objects)+?<=? AND EXISTS(SELECT 1 FROM projects WHERE id=? AND status='active')",key,uploadId,key.split('/')[0],size,Date.now(),size,AUDIO_CAPACITY,key.split('/')[0]).run();
     if(!result.meta.changes)throw fault('음원 저장공간이 부족하거나 종료된 프로젝트예요. 오래된 음원을 삭제해 주세요.',409);
     return {uploadId};
   }
   resumeMultipartUpload(key,uploadId){return {uploadPart:(number,body)=>this.uploadPart(key,uploadId,number,body),complete:parts=>this.complete(key,uploadId,parts),abort:()=>this.remove(key,uploadId)};}
   async uploadPart(key,uploadId,partNumber,body){
-    const object=await query(this.env,"SELECT expected_bytes FROM audio_objects WHERE key=? AND upload_id=? AND state='uploading'",key,uploadId).first();
+    const object=await query(this.env,"SELECT expected_bytes,created_at,layout FROM audio_objects WHERE key=? AND upload_id=? AND state='uploading'",key,uploadId).first();
     if(!object)throw fault('종료된 업로드예요.',409);
+    if(object.created_at+86400000<=Date.now())throw fault('업로드가 만료되었어요. 파일을 다시 선택해 주세요.',410);
     const bytes=await new Response(body).arrayBuffer(),expected=Math.min(CHUNK,object.expected_bytes-(partNumber-1)*CHUNK);
     if(!Number.isInteger(partNumber)||partNumber<1||bytes.byteLength!==expected||expected<=0)throw fault('업로드 크기가 일치하지 않아요.');
     const hash=Buffer.from(await crypto.subtle.digest('SHA-256',bytes)).toString('hex');
-    await query(this.env,"INSERT INTO audio_chunks(object_key,part_number,etag,hash,bytes,data) SELECT ?,?,?,?,?,? WHERE EXISTS(SELECT 1 FROM audio_objects a JOIN projects p ON p.id=a.project_id WHERE a.key=? AND a.upload_id=? AND a.state='uploading' AND p.status='active') ON CONFLICT(object_key,part_number) DO NOTHING",key,partNumber,hash,hash,bytes.byteLength,Buffer.from(bytes).toString('base64'),key,uploadId).run();
+    if(object.layout===1){
+      const results=await Promise.all(this.shards().map(async(db,index)=>{
+        const [start,end]=fragmentRange(bytes.byteLength,index),data=Buffer.from(bytes.slice(start,end)).toString('base64');
+        // The deadline also prevents a stalled request writing after its tombstone expires.
+        await db.prepare("INSERT INTO audio_fragments(object_key,part_number,hash,data) SELECT ?,?,?,? WHERE NOT EXISTS(SELECT 1 FROM audio_tombstones WHERE object_key=?) AND ?>CAST(unixepoch('subsec')*1000 AS INTEGER) ON CONFLICT(object_key,part_number) DO NOTHING").bind(key,partNumber,hash,data,key,object.created_at+86400000).run();
+        return db.prepare('SELECT hash FROM audio_fragments WHERE object_key=? AND part_number=?').bind(key,partNumber).first();
+      }));
+      if(results.some(row=>row?.hash!==hash))throw fault('종료되었거나 내용이 다른 업로드예요.',409);
+    }
+    await query(this.env,"INSERT INTO audio_chunks(object_key,part_number,etag,hash,bytes,data) SELECT ?,?,?,?,?,? WHERE EXISTS(SELECT 1 FROM audio_objects a JOIN projects p ON p.id=a.project_id WHERE a.key=? AND a.upload_id=? AND a.state='uploading' AND p.status='active') ON CONFLICT(object_key,part_number) DO NOTHING",key,partNumber,hash,hash,bytes.byteLength,object.layout===1?'':Buffer.from(bytes).toString('base64'),key,uploadId).run();
     const saved=await query(this.env,'SELECT hash,etag FROM audio_chunks WHERE object_key=? AND part_number=?',key,partNumber).first();
     if(saved?.hash!==hash)throw fault('종료되었거나 내용이 다른 업로드예요.',409);
     return {partNumber,etag:saved.etag};
@@ -44,7 +59,7 @@ export class D1AudioStorage {
     const result=await query(this.env,"UPDATE audio_objects SET state='ready',bytes=expected_bytes WHERE key=? AND upload_id=? AND state='uploading' AND EXISTS(SELECT 1 FROM projects WHERE id=audio_objects.project_id AND status='active')",key,uploadId).run();
     if(!result.meta.changes)throw fault('종료된 업로드예요.',409);
   }
-  async head(key){const o=await query(this.env,"SELECT bytes FROM audio_objects WHERE key=? AND state='ready'",key).first();return o?{size:o.bytes}:null;}
+  async head(key){const o=await query(this.env,"SELECT bytes,layout FROM audio_objects WHERE key=? AND state='ready'",key).first();return o?{size:o.bytes,layout:o.layout}:null;}
   async get(key,{range:headers}={}){
     const object=await this.head(key);if(!object)return null;
     const range=parseRange(headers?.get('Range'),object.size),start=range?.offset||0,length=range?.length||object.size;
@@ -52,6 +67,14 @@ export class D1AudioStorage {
     const end=start+length,first=Math.floor(start/CHUNK)+1,last=Math.ceil(end/CHUNK);
     const parts=(await query(this.env,'SELECT part_number,bytes,data,hash FROM audio_chunks WHERE object_key=? AND part_number BETWEEN ? AND ? ORDER BY part_number',key,first,last).all()).results;
     if(parts.length!==last-first+1)throw fault('삭제되었거나 손상된 음원이에요.',410);
+    if(object.layout===1){
+      const fragments=await Promise.all(this.shards().map(async db=>(await db.prepare('SELECT part_number,hash,data FROM audio_fragments WHERE object_key=? AND part_number BETWEEN ? AND ? ORDER BY part_number').bind(key,first,last).all()).results));
+      for(let i=0;i<parts.length;i++){
+        const part=parts[i],rows=fragments.map(list=>list[i]);
+        if(rows.some((row,index)=>{const [start,end]=fragmentRange(part.bytes,index);return !row||row.part_number!==part.part_number||row.hash!==part.hash||Buffer.from(row.data,'base64').length!==end-start;}))throw fault('삭제되었거나 손상된 음원이에요.',410);
+        part.data=Buffer.concat(rows.map(row=>Buffer.from(row.data,'base64'))).toString('base64');
+      }
+    }
     const output=new Uint8Array(length);let position=0;
     for(const p of parts){const data=Buffer.from(p.data,'base64');if(data.length!==p.bytes||Buffer.from(await crypto.subtle.digest('SHA-256',data)).toString('hex')!==p.hash)throw fault('파일 검증에 실패했어요. 관리자에게 알려 주세요.',503);const offset=(p.part_number-1)*CHUNK,chunk=data.subarray(Math.max(0,start-offset),Math.min(p.bytes,end-offset));output.set(chunk,position);position+=chunk.length;}
     if(position!==length)throw fault('음원을 읽을 수 없어요.',503);
@@ -60,15 +83,33 @@ export class D1AudioStorage {
   async remove(key,uploadId){
     const args=uploadId?[key,uploadId]:[key];
     await query(this.env,"UPDATE audio_objects SET state='deleting' WHERE key=?"+(uploadId?' AND upload_id=?':''),...args).run();
-    if(!await query(this.env,"SELECT key FROM audio_objects WHERE key=? AND state='deleting'"+(uploadId?' AND upload_id=?':''),...args).first())return;
-    let result;do{result=await query(this.env,'DELETE FROM audio_chunks WHERE object_key=? AND part_number IN (SELECT part_number FROM audio_chunks WHERE object_key=? LIMIT 32)',key,key).run();}while(result.meta.changes===32);
+    const object=await query(this.env,"SELECT key,layout FROM audio_objects WHERE key=? AND state='deleting'"+(uploadId?' AND upload_id=?':''),...args).first();if(!object)return true;
+    if(object.layout===1){
+      const remaining=await Promise.all(this.shards().map(async db=>{
+        const results=await db.batch([
+          db.prepare('INSERT INTO audio_tombstones(object_key,expires_at) VALUES(?,?) ON CONFLICT(object_key) DO UPDATE SET expires_at=excluded.expires_at').bind(key,Date.now()+2*86400000),
+          db.prepare('DELETE FROM audio_fragments WHERE object_key=? AND part_number IN (SELECT part_number FROM audio_fragments WHERE object_key=? LIMIT 128)').bind(key,key),
+          db.prepare('SELECT 1 AS remaining FROM audio_fragments WHERE object_key=? LIMIT 1').bind(key)
+        ]);return results[2].results.length>0;
+      }));
+      if(remaining.some(Boolean))return false;
+    }
+    await query(this.env,'DELETE FROM audio_chunks WHERE object_key=? AND part_number IN (SELECT part_number FROM audio_chunks WHERE object_key=? LIMIT 128)',key,key).run();
+    if(await query(this.env,'SELECT 1 AS remaining FROM audio_chunks WHERE object_key=? LIMIT 1',key).first())return false;
     await query(this.env,"DELETE FROM audio_objects WHERE key=? AND state='deleting'",key).run();
+    return true;
   }
-  async delete(keys){for(const key of Array.isArray(keys)?keys:[keys])await this.remove(key);}
+  async delete(keys){
+    const list=Array.isArray(keys)?keys:[keys];
+    await query(this.env,"UPDATE audio_objects SET state='deleting' WHERE key IN (SELECT value FROM json_each(?))",JSON.stringify(list)).run();
+    for(const key of list.slice(0,1))await this.remove(key);
+    return !await query(this.env,'SELECT 1 AS remaining FROM audio_objects WHERE key IN (SELECT value FROM json_each(?)) LIMIT 1',JSON.stringify(list)).first();
+  }
   async list({prefix,cursor=''}){const rows=(await query(this.env,'SELECT key FROM audio_objects WHERE project_id=? AND key>? ORDER BY key LIMIT 20',prefix.split('/')[0],cursor).all()).results;return {objects:rows,truncated:rows.length===20,cursor:rows.at(-1)?.key};}
   async cleanup(){
-    const rows=(await query(this.env,"SELECT key FROM audio_objects WHERE state='deleting' OR (created_at<? AND NOT EXISTS(SELECT 1 FROM uploads WHERE uploads.object_key=audio_objects.key) AND NOT EXISTS(SELECT 1 FROM versions WHERE versions.object_key=audio_objects.key AND versions.deleted_at IS NULL)) LIMIT 2",Date.now()-86400000).all()).results;
+    const rows=(await query(this.env,"SELECT key FROM audio_objects WHERE state='deleting' OR (created_at<? AND NOT EXISTS(SELECT 1 FROM uploads WHERE uploads.object_key=audio_objects.key) AND NOT EXISTS(SELECT 1 FROM versions WHERE versions.object_key=audio_objects.key AND versions.deleted_at IS NULL)) LIMIT 1",Date.now()-86400000).all()).results;
     for(const o of rows)await this.remove(o.key);
+    await Promise.all(this.shards().map(db=>db.prepare('DELETE FROM audio_tombstones WHERE expires_at<?').bind(Date.now()).run()));
   }
 }
 export function withAudioStorage(env){return {...env,AUDIO:new D1AudioStorage(env)};}

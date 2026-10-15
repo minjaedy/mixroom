@@ -12,6 +12,7 @@ PowerShell에서 이 폴더를 열고 순서대로 실행합니다.
 npm ci
 npm run setup:local
 npx wrangler d1 migrations apply mixroom-studio --local
+foreach ($mixroomShard in 1..4) { npx wrangler d1 migrations apply "mixroom-audio-$mixroomShard" --local }
 npm run dev
 ```
 
@@ -55,8 +56,9 @@ npm run dev
 별도 테스트 저장소:
 
 1. `npx wrangler d1 migrations apply mixroom-studio --local --persist-to .wrangler/test-state`
-2. `npx wrangler dev --port 8795 --persist-to .wrangler/test-state`
-3. `node tests/integration.mjs`
+2. `foreach ($mixroomShard in 1..4) { npx wrangler d1 migrations apply "mixroom-audio-$mixroomShard" --local --persist-to .wrangler/test-state }`
+3. `npx wrangler dev --port 8795 --persist-to .wrangler/test-state`
+4. `node tests/integration.mjs`
 
 통합 검증은 별도 로컬 계정과 프로젝트로 인증·프로젝트 격리·오디오 업로드/Range·수정 상태·대화·알림 기록·코드 폐기·정보와 음원 삭제를 확인합니다. 실제 푸시는 발송하지 않습니다.
 
@@ -71,14 +73,14 @@ npm run dev
 
 음원은 변환·재인코딩·압축·정규화 없이 저장합니다. 청크별 SHA-256으로 업로드와 저장된 파일, 다운로드 응답을 확인합니다. 재생용 디코딩/볼륨/속도 변경은 원본에 적용되지 않습니다. 원본 WAV의 비트 깊이·샘플레이트, MP3 등 원래 파일의 형식을 보존합니다. 브라우저/기기의 재생 출력은 기기 설정에 따릅니다.
 
-D1 무료 DB 500MB 기준으로 base64와 인덱스 여유를 남겨 **원본 음원 합계 320MiB**로 제한합니다. 업로드 중인 파일도 예약 용량에 포함됩니다. 파일당 최대 200MiB/2시간. 버전 옆 삭제 버튼으로 개별 파일을 지우면 수정 기록은 남고 삭제된 음원의 재생은 차단됩니다. 고객 삭제는 보관 예외 없이 모든 음원과 고객 정보·대화·요청·구독·세션을 지웁니다. 접근은 즉시 차단하고, 음원 및 Firebase 계정 정리는 재시도 가능한 서버 작업으로 처리합니다. 중단된 업로드는 24시간 후 정리합니다. 공급자 백업은 공급자의 보존 기간이 적용됩니다.
+**원본 음원 합계 1GiB(화면: 1GB / 1,024MB)**로 제한합니다. 기존 DB는 권한·파일 메타데이터와 기존 음원을 유지하며, 새 음원은 512KiB 청크를 동일한 4개 조각으로 나누어 MIXROOM 전용 D1 DB 4개에 저장합니다. DB별 인코딩된 음원은 전체 한도에서 약 342MiB 이하이며 각 무료 DB 500MB 한도에 여유를 둡니다. 원본은 변환하지 않고 SHA-256 검증 후 재조합합니다. 각 파일의 예약은 메인 DB에서 원자적으로 처리합니다. 업로드 중인 파일도 예약 용량에 포함됩니다. 파일당 최대 200MiB/2시간. 버전 옆 삭제 버튼으로 개별 파일을 지우면 수정 기록은 남고 삭제된 음원의 재생은 차단됩니다. 고객 삭제는 보관 예외 없이 모든 음원과 고객 정보·대화·요청·구독·세션을 지웁니다. 접근은 즉시 차단하고, 음원 및 Firebase 계정 정리는 재시도 가능한 서버 작업으로 처리합니다. 중단된 업로드는 24시간 후 정리합니다. 공급자 백업은 공급자의 보존 기간이 적용됩니다.
 
 Firebase 규칙은 기본 거부이며 본인의 변경 신호만 읽습니다. 쓰기는 서버만 가능합니다. Firebase 장애 시 30초 간격 API 확인으로 동작합니다. private key, 세션/초대 코드, 관리자 비밀번호는 저장소에 포함하지 않습니다. Firebase 웹 API 키/프로젝트 ID는 공개 클라이언트 설정이며 접근 권한은 보안 규칙과 서버 인증으로 제한합니다.
 
 배포:
 
 1. 개인 계정 확인: GitHub minjaedy, Cloudflare/Firebase kmj843337@gmail.com.
-2. `npx wrangler d1 migrations apply mixroom-studio --remote --config wrangler.production.jsonc`.
+2. `npx wrangler d1 migrations apply mixroom-studio --remote --config wrangler.production.jsonc`. 이어서 `foreach ($mixroomShard in 1..4) { npx wrangler d1 migrations apply "mixroom-audio-$mixroomShard" --remote --config wrangler.production.jsonc }`.
 3. Worker secrets: SETUP_CODE_HASH, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, FIREBASE_ACCOUNT.
 4. `npm run deploy`. main의 public 변경은 GitHub Actions가 Pages에 배포합니다.
 5. 처음 한 번 앱의 관리자 계정 만들기에서 스튜디오 이름·비밀번호 설정. 이 PC에서는 `pwsh -File scripts/copy-setup-code.ps1`로 암호화 보관한 초기 코드를 클립보드에 복사할 수 있습니다.
@@ -104,3 +106,17 @@ Firebase 프로젝트: mixroom-minjaedy. 규칙 배포는 `npx firebase-tools de
 관리자 용량 관리: 프로젝트별 필터, 용량/업로드 날짜 정렬, 파일 히스토리 선택 삭제와 전체 저장공간 선택 삭제(최대 100개). 음원 삭제는 요청·대화를 유지하며 삭제된 반영 버전의 요청을 접수로 되돌립니다. 선택 삭제 확인창과 역할별 사진 가이드를 함께 제공합니다.
 
 사용법이 바뀌는 UI 기능을 수정할 때는 같은 변경에 고객·관리자 역할별 사용 가이드와 해당 실제 화면 사진도 함께 갱신합니다.
+
+## 30일 보관 정책과 모바일 채팅
+
+음원은 각 버전의 업로드 완료(created_at), 일반 채팅 및 수정 요청 답변은 각 메시지의 전송(created_at)부터 정확히 30일 보관합니다. 읽음·다운로드·프로젝트 완료로 갱신하지 않습니다. 기존 데이터도 원래 시각으로 적용합니다. 만료된 음원·메시지는 API 조회에서 즉시 제외하며 음원 다운로드도 거부합니다. 2분 주기의 cron이 음원을 삭제 상태로 전환하고 분산된 조각을 제한된 묶음으로 정리하므로 물리 삭제·용량 반환은 순차 처리됩니다. 자동 정리는 실패해도 재시도하며 파일 삭제 tombstone으로 늦게 도착한 업로드가 파일을 되살리지 못하게 합니다. 만료 메시지와 관련 메시지 알림도 삭제합니다. 수정 요청 본문은 유지하고 만료 수정본의 해결 연결은 해제합니다. 공급자 백업은 해당 공급자의 보존 정책이 적용됩니다.
+
+폰 화면의 하단 메뉴는 64px 메뉴 영역과 홈 표시줄 안전 영역을 분리합니다. 관리자 보조 메뉴(용량 관리·가이드·설정)는 더보기에 있고 고객도 가이드·설정을 더보기에서 엽니다. 폰 채팅은 접을 수 있는 프로젝트 선택과 자동 높이 입력창을 사용하며 키보드가 올라오면 하단 메뉴를 숨깁니다. PC는 기존 두 칸 채팅 배치를 유지합니다.
+
+추가 DB에는 audio-migrations/, 메인 DB에는 migrations/를 적용한 뒤 Worker를 배포합니다. node tests/retention-integration.mjs는 원격 접근 없이 임시 DB로 기존 음원 호환·4곳 분산·원본 일치·동시 용량 예약·30일 경계·채팅 만료·삭제 재시도를 검사합니다.
+
+설치한 PWA는 서버의 안 본 알림 수를 Badging API로 표시합니다. 푸시와 화면 갱신에서 최신 서버 스냅샷을 적용하며, 이미 읽은 알림보다 오래된 푸시는 무시합니다. 로그아웃 시 배지를 비웁니다. 닫힌 다른 기기는 다음 푸시 또는 앱 재실행 때 동기화됩니다.
+
+PC 상단 앱 설치 버튼은 beforeinstallprompt를 통한 네이티브 설치창을 열며, 해당 이벤트가 없으면 OS별 사진 가이드로 이동합니다. 앱 설치 완료·standalone 모드에서는 숨깁니다.
+
+자동 정리는 짝수 분, 푸시 재시도와 Firebase 변경 신호 전달은 홀수 분 cron으로 분리합니다. 각각 2분 주기입니다. 정상적인 새 알림·변경 신호는 요청 직후에도 전달하며, 정리 작업은 한 번에 음원 하나의 최대 128개 청크를 처리합니다. 임시 DB 검증에서 삭제 재시도와 호출당 50개 이하의 D1 쿼리를 확인합니다.

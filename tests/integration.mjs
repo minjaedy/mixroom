@@ -58,7 +58,7 @@ const newClient=(await call('/login',{body:{role:'client',code:invite.data.code}
 const closed=await call('/projects/'+p.id+'/close',{cookie:admin,body:{confirm:title,keepAudio:false}});check(closed.status===200,'project closure accepted');
 check((await call('/me',{cookie:newClient})).status===401,'closure revokes all customer access');
 const after=(await call('/projects/'+p.id,{cookie:admin})).data;check(after.project.client_name===''&&after.messages.length===0&&after.requests.length===0,'closure removes customer identity, chat and requests');
-await fetch(origin+'/cdn-cgi/local/scheduled');
-const cleaned=(await call('/projects/'+p.id,{cookie:admin})).data;check(cleaned.versions.length===0&&cleaned.project.purge_audio===0,'audio deletion completes with retryable cleanup');
+let cleaned;for(let pass=0;pass<30;pass++){await fetch(origin+'/cdn-cgi/local/scheduled');cleaned=(await call('/projects/'+p.id,{cookie:admin})).data;if(cleaned.project.purge_audio===0)break;}
+check(cleaned.versions.length===0&&cleaned.project.purge_audio===0,'audio deletion completes with retryable cleanup');
 await call('/projects/'+p2.id+'/close',{cookie:admin,body:{confirm:title+' other',keepAudio:false}});
 console.log(`${passed} integration checks passed. No production data or real push subscriptions used.`);
