@@ -30,11 +30,13 @@ npm run dev
 
 ## 구현
 
+- 고객이 자기 프로젝트에 원본 음원과 작업 요청 업로드 → 관리자 수정본 업로드 → A/B 비교. 컴퓨터 드래그·파일 선택, 아이폰 파일 선택 지원. 고객 업로드는 관리자에게 알리고, 첨부한 작업 내용은 원본에 연결된 수정 요청으로 함께 저장.
 - WAV/MP3/M4A/AAC/OGG/FLAC 업로드, 512KiB 청크, 파일당 200MB/2시간 제한
 - Web Audio 동기 A/B 전환, 실제 파형, 구간 반복, B 시간 보정
 - 고객별 프로젝트 초대 코드, 해시 저장, 30일 Bearer 세션, 서버 권한 검증
 - 버전에 연결된 요청과 답변, 반영 버전 선택, 고객 확인
 - 프로젝트 대화, 서버 알림함, Web Push 구독과 재시도 큐
+- 채팅 말풍선의 안 읽음/읽음 표시: 화면에 보인 상대 메시지만 확인 처리, 알림 모두 읽음과 별도. Enter 전송, Shift+Enter 줄바꿈, 한글 조합 확정 및 중복 전송 방지.
 - 메뉴·상단 종 아이콘의 안 읽은 알림 숫자(최대 `99+`), 고객/관리자별 읽음 상태
 - 알림 선택 시 채팅방·수정 구간·답변·해당 음원 버전으로 이동. 채팅방을 열면 그 방에서 확인한 알림만 읽음 처리
 - 프로젝트 완료(읽기 전용), 초대 재발급, 고객 접속 종료와 데이터 삭제
@@ -81,7 +83,7 @@ Firebase 규칙은 기본 거부이며 본인의 변경 신호만 읽습니다. 
 
 Firebase 프로젝트: mixroom-minjaedy. 규칙 배포는 `npx firebase-tools deploy --only database --project mixroom-minjaedy`. Firebase 서비스 계정은 이 프로젝트의 Database/Auth 관리자만 허용하며 다른 프로젝트 권한은 없습니다.
 
-검증: `npm run check`, `npm test`, `node tests/integration.mjs`, `node tests/audio-integration.mjs`. 큰 음원 두 개는 브라우저 메모리 사용량이 커집니다. 실제 iPhone/Android에서 기기별 재생 성능과 푸시 수신은 설정의 테스트 알림으로 확인해야 합니다.
+검증: `npm run check`, `npm test`, `node tests/integration.mjs`, `node tests/audio-integration.mjs`, `node tests/collaboration-integration.mjs`. 큰 음원 두 개는 브라우저 메모리 사용량이 커집니다. 실제 iPhone/Android에서 기기별 재생 성능과 푸시 수신은 설정의 테스트 알림으로 확인해야 합니다.
 
 ## 가이드 이미지 출처
 
@@ -90,6 +92,7 @@ Firebase 프로젝트: mixroom-minjaedy. 규칙 배포는 `npx firebase-tools de
 - Google web.dev: https://web.dev/learn/pwa/installation (CC BY 4.0, 원본 그대로)
 - 한국어 메뉴·권한창 SVG: 직접 제작한 안내용 재현
 - `start-entry.jpg`, `start-admin.jpg`: 입력란이 비어 있는 실제 입장·등록 화면 캡처. `start-customers.jpg`, `start-invite.jpg`: 실제 데모 화면이며 표시된 고객·코드는 예시.
+- `app-upload.jpg`: 고객 원본 및 작업 요청 입력 화면, 테스트 WAV를 선택한 데모 캡처.
 - `app-review.jpg`, `app-notifications.jpg`, `app-notifications-mobile.jpg`: MIXROOM 데모 실제 브라우저 캡처 (모바일 이미지는 브라우저 너비를 조절해 촬영)
 
 이미지에 출처·예시 여부를 표시했고, 공식 화면에 등장하는 다른 앱이 MIXROOM의 실기기 화면인 것처럼 설명하지 않습니다.

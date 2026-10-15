@@ -1,0 +1,46 @@
+import fs from 'node:fs/promises';
+import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
+const origin='http://127.0.0.1:8795';let passed=0;
+const check=(v,label)=>{assert.ok(v,label);console.log('PASS '+label);passed++;};
+async function api(path,cookie,body,method){const r=await fetch(origin+'/api'+path,{method:method||(body?'POST':'GET'),headers:{Origin:origin,...(cookie?{Cookie:cookie}:{}),...(body?{'Content-Type':'application/json'}:{})},body:body?JSON.stringify(body):undefined});return {status:r.status,data:await r.json(),cookie:r.headers.get('set-cookie')?.split(';')[0]};}
+const credentials=JSON.parse(await fs.readFile('.local/test-credentials.json','utf8'));
+const admin=(await api('/login',null,{role:'engineer',password:credentials.password})).cookie;assert.ok(admin);
+const title='Collaboration fixture '+Date.now(),projects=[];
+try{
+  for(const suffix of ['',' other']){const p=(await api('/projects',admin,{title:title+suffix,client:'Test customer'})).data;assert.ok(p.id);projects.push({...p,title:title+suffix});}
+  const [p,other]=projects,base='/projects/'+p.id,client=(await api('/login',null,{role:'client',code:p.code})).cookie;
+  const state=async()=>(await api(base,admin)).data;
+  await api(base+'/messages',admin,{text:'Engineer message'});await api(base+'/messages',client,{text:'Customer message'});
+  let data=await state();const mine=data.messages.find(m=>m.role==='engineer'),theirs=data.messages.find(m=>m.role==='client');
+  check(data.messages.every(m=>m.read_at===null),'messages begin unread');
+  await api('/notifications/read',client,{all:true});check((await state()).messages.every(m=>m.read_at===null),'clearing alerts does not fake chat receipts');
+  check((await api('/projects/'+other.id+'/messages/read',client,{ids:[mine.id]})).status===403,'receipts cannot cross project access');
+  check((await api(base+'/messages/read',client,{ids:[]})).status===400,'empty receipt request rejected');
+  await api(base+'/messages',admin,{text:'Arrived after visible snapshot'});
+  const read=await api(base+'/messages/read',client,{ids:[mine.id,theirs.id]});check(read.data.ids.length===1&&read.data.ids[0]===mine.id,'client can acknowledge only received messages');
+  data=await state();check(data.messages.find(m=>m.id===mine.id).read_at>0&&!data.messages.find(m=>m.id===theirs.id).read_at&&!data.messages.find(m=>m.text==='Arrived after visible snapshot').read_at,'unseen and own messages remain unread');
+  const stamp=data.messages.find(m=>m.id===mine.id).read_at;
+  await api(base+'/messages/read',client,{ids:[mine.id]});check((await state()).messages.find(m=>m.id===mine.id).read_at===stamp,'receipt timestamp is idempotent');
+  await api(base+'/messages/read',admin,{ids:[theirs.id]});check((await state()).messages.find(m=>m.id===theirs.id).read_at>0,'engineer read is visible to customer');
+  const wav=Buffer.alloc(44+32000);wav.write('RIFF');wav.writeUInt32LE(wav.length-8,4);wav.write('WAVEfmt ',8);wav.writeUInt32LE(16,16);wav.writeUInt16LE(1,20);wav.writeUInt16LE(1,22);wav.writeUInt32LE(16000,24);wav.writeUInt32LE(32000,28);wav.writeUInt16LE(2,32);wav.writeUInt16LE(16,34);wav.write('data',36);wav.writeUInt32LE(wav.length-44,40);for(let i=44;i<wav.length;i+=2)wav.writeInt16LE(Math.sin(i/16)*1000,i);
+  await fs.mkdir('test-results',{recursive:true});await fs.writeFile('test-results/customer-original.wav',wav);
+  const options={fileName:'customer-original.wav',bytes:wav.length,duration:1,label:'Customer original',note:'Please mix this recording and edit the opening.'};
+  const u=await api(base+'/uploads',client,options);check(u.status===200,'customer starts original upload');
+  check((await api('/projects/'+other.id+'/uploads',client,options)).status===403,'customer upload is confined to their project');
+  check((await api(base+'/uploads/'+u.data.id,admin,{},'DELETE')).status===403,'other role cannot cancel an in-flight upload');
+  const digest=crypto.createHash('sha256').update(wav).digest('hex');
+  const part=await fetch(origin+'/api'+base+'/uploads/'+u.data.id+'/1',{method:'PUT',headers:{Cookie:client,Origin:origin,'X-Content-SHA256':digest},body:wav});check(part.status===200,'customer uploads original bytes');
+  const done=await api(base+'/uploads/'+u.data.id+'/complete',client,{parts:[await part.json()]});check(done.status===200,'customer finalizes original upload');
+  data=await state();const v=data.versions.find(v=>v.id===done.data.id),request=data.requests.find(r=>r.version_id===v.id);
+  check(v.uploaded_by==='client'&&request.text===options.note&&request.start===0&&request.end===1,'original attribution and work request saved together');
+  check((await api('/notifications',admin)).data.notifications.some(n=>n.type==='version'&&n.target_id===v.id),'customer original notifies engineer');
+  const download=await fetch(origin+'/api'+base+'/versions/'+v.id+'/audio',{headers:{Cookie:admin,Range:`bytes=0-${wav.length-1}`}});const actual=Buffer.from(await download.arrayBuffer());
+  check(actual.equals(wav)&&download.headers.get('X-Content-SHA256')===digest,'engineer downloads byte-identical customer original');
+  await api(base+'/messages',admin,{text:'Final delivery'});const last=(await state()).messages.find(m=>m.text==='Final delivery');
+  await api(base+'/status',admin,{status:'completed'});check((await api(base+'/uploads',client,options)).status===409,'completed projects reject new customer uploads');
+  check((await api(base+'/messages/read',client,{ids:[last.id]})).data.ids.includes(last.id),'completed projects still allow reading chat');
+  await api(base+'/close',admin,{confirm:p.title});check((await state()).messages.length===0,'customer deletion also removes read receipts');
+  check((await api(base+'/messages/read',client,{ids:[mine.id]})).status===401,'deleted customer cannot update receipts');
+}finally{for(const p of projects)await api('/projects/'+p.id+'/close',admin,{confirm:p.title}).catch(()=>{});await fetch(origin+'/cdn-cgi/local/scheduled');}
+console.log(`${passed} collaboration checks passed; local disposable data only.`);
