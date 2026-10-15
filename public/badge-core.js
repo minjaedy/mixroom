@@ -2,6 +2,7 @@
 // No messages, audio, session tokens or credentials are cached here.
 (() => {
   function nextState(previous,snapshot,source){
+    if(source==='restore')return previous||null;
     if(source==='reset')return {blocked:true};
     if(!snapshot||!Number.isSafeInteger(snapshot.count)||snapshot.count<0||!Number.isSafeInteger(snapshot.at)||snapshot.at<0||typeof snapshot.recipient!=='string')return null;
     if(source==='push'&&(previous?.blocked||(previous?.recipient&&previous.recipient!==snapshot.recipient)))return null;
@@ -27,7 +28,7 @@
         tx.oncomplete=()=>resolve(next);tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error);
       });
     }catch{state=nextState(memory,snapshot,source);}finally{db?.close();}
-    if(state){memory=state;await apply(state);}
+    if(state){memory=state;await apply(state);}return state;
   }
-  self.MixroomBadge={nextState,update(snapshot,source='push'){queue=queue.catch(()=>{}).then(()=>update(snapshot,source));return queue;}};
+  self.MixroomBadge={nextState,update(snapshot,source='push'){queue=queue.catch(()=>{}).then(()=>update(snapshot,source));return queue;},restore(){return this.update(null,'restore');}};
 })();

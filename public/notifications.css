@@ -8,3 +8,5 @@
 .notification-row.unread .dot{background:#e13e51}
 .notification-row:not(.unread)>.dot{background:transparent}
 @media(max-width:760px){.sidebar .menu-icon{--badge-border:#222229}.nav .menu-icon{margin:3px 8px 2px}.unread-badge{top:-6px;right:-8px}.notification-target{scroll-margin:22px}}
+
+.push-welcome{padding-top:4px}.push-welcome-icon{display:grid;place-items:center;width:48px;height:48px;border:1px solid var(--line);border-radius:16px;margin-bottom:18px;color:var(--accent)}.push-welcome-icon .icon{width:24px;height:24px}.push-welcome p{line-height:1.7}.push-welcome .row{gap:10px;flex-wrap:wrap;margin:20px 0 14px}.push-welcome small{color:var(--muted);font-size:11px}
