@@ -1,0 +1,10 @@
+{
+  "name": "mixroom-studio", "main": "worker/index.js",
+  "account_id": "06bada574d14a5e1d912f35b4645f695",
+  "compatibility_date": "2026-10-01", "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "assets": {"directory":"./public", "binding":"ASSETS", "run_worker_first":true},
+  "d1_databases":[{"binding":"DB","database_name":"mixroom-studio","database_id":"local-mixroom","migrations_dir":"migrations"}],
+  "r2_buckets":[{"binding":"AUDIO","bucket_name":"mixroom-studio-audio"}],
+  "triggers":{"crons":["*/2 * * * *"]}
+}

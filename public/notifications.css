@@ -1,0 +1,10 @@
+.menu-icon{position:relative;display:inline-flex;flex:0 0 auto;align-items:center;justify-content:center;width:24px;height:24px;overflow:visible}
+.unread-badge{position:absolute;top:-7px;right:-9px;display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;padding:0 4px;border-radius:10px;background:#e13e51;color:#fff;font:700 10px/1 system-ui,sans-serif;letter-spacing:0;box-shadow:0 0 0 2px var(--badge-border,#fff);white-space:nowrap;pointer-events:none}
+.unread-badge[hidden]{display:none}
+.sidebar .menu-icon{--badge-border:#222229}
+[data-theme=dark] .topbar .menu-icon{--badge-border:#18191e}
+.notification-target{outline:2px solid #a583d6!important;outline-offset:3px;scroll-margin:28px}
+.notification-row>div{flex:1;text-align:left}
+.notification-row.unread .dot{background:#e13e51}
+.notification-row:not(.unread)>.dot{background:transparent}
+@media(max-width:760px){.sidebar .menu-icon{--badge-border:#222229}.nav .menu-icon{margin:3px 8px 2px}.unread-badge{top:-6px;right:-8px}.notification-target{scroll-margin:22px}}

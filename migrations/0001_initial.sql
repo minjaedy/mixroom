@@ -1,0 +1,17 @@
+CREATE TABLE engineers(id TEXT PRIMARY KEY, name TEXT NOT NULL, salt TEXT NOT NULL, password_hash TEXT NOT NULL, created_at INTEGER NOT NULL);
+CREATE TABLE projects(id TEXT PRIMARY KEY, title TEXT NOT NULL, client_name TEXT NOT NULL, description TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'active', invite_hash TEXT NOT NULL, invite_epoch INTEGER NOT NULL DEFAULT 1, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, purge_audio INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE sessions(hash TEXT PRIMARY KEY, role TEXT NOT NULL, project_id TEXT, epoch INTEGER, expires_at INTEGER NOT NULL);
+CREATE TABLE versions(id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE, number INTEGER NOT NULL, label TEXT NOT NULL, file_name TEXT NOT NULL, object_key TEXT NOT NULL, mime TEXT NOT NULL, bytes INTEGER NOT NULL, duration REAL NOT NULL, note TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL, UNIQUE(project_id,number));
+CREATE TABLE requests(id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE, version_id TEXT NOT NULL REFERENCES versions(id) ON DELETE CASCADE, start REAL NOT NULL, end REAL NOT NULL, text TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'open', resolved_version_id TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+CREATE TABLE messages(id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE, request_id TEXT REFERENCES requests(id) ON DELETE CASCADE, role TEXT NOT NULL, text TEXT NOT NULL, created_at INTEGER NOT NULL);
+CREATE TABLE notifications(id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE, recipient TEXT NOT NULL, type TEXT NOT NULL, title TEXT NOT NULL, target_id TEXT, read_at INTEGER, created_at INTEGER NOT NULL);
+CREATE TABLE subscriptions(id TEXT PRIMARY KEY, recipient TEXT NOT NULL, subscription TEXT NOT NULL, created_at INTEGER NOT NULL);
+CREATE TABLE push_jobs(id TEXT PRIMARY KEY, notification_id TEXT NOT NULL REFERENCES notifications(id) ON DELETE CASCADE, subscription_id TEXT NOT NULL REFERENCES subscriptions(id) ON DELETE CASCADE, state TEXT NOT NULL DEFAULT 'pending', attempts INTEGER NOT NULL DEFAULT 0, next_at INTEGER NOT NULL, lease_until INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE uploads(id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE, upload_id TEXT NOT NULL, object_key TEXT NOT NULL, file_name TEXT NOT NULL, mime TEXT NOT NULL, bytes INTEGER NOT NULL, duration REAL NOT NULL, label TEXT NOT NULL, note TEXT NOT NULL, created_at INTEGER NOT NULL);
+CREATE TABLE rate_limits(id TEXT PRIMARY KEY, attempts INTEGER NOT NULL, expires_at INTEGER NOT NULL);
+CREATE INDEX idx_versions_project ON versions(project_id,number);
+CREATE INDEX idx_requests_project ON requests(project_id,created_at);
+CREATE INDEX idx_messages_project ON messages(project_id,created_at);
+CREATE INDEX idx_notifications_recipient ON notifications(recipient,created_at);
+CREATE INDEX idx_jobs_pending ON push_jobs(state,next_at);
+CREATE INDEX idx_sessions_project ON sessions(project_id);

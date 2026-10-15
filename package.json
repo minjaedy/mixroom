@@ -1,0 +1,19 @@
+{
+  "name": "mixroom",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "setup:local": "node scripts/setup-local.mjs",
+    "dev": "wrangler dev --port 8794",
+    "deploy": "wrangler deploy",
+    "check": "node --check worker/index.js && node --check public/app.js && node --check public/audio.js && node --check public/sw.js && node --check public/theme.js && node --check public/guide.js && node --check public/guide-page.js",
+    "test": "node --test tests/*.test.js"
+  },
+  "dependencies": {
+    "web-push": "3.6.7"
+  },
+  "devDependencies": {
+    "wrangler": "4.148.0"
+  }
+}
