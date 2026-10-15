@@ -1,4 +1,4 @@
-import {bindChatKeyboard} from './chat.js';
+import {bindChatKeyboard,receivedMessageIds} from './chat.js';
 import {startAppUpdates} from './updates.js';
 import {APP_BASE,apiFetch,saveSession,startRealtime,stopRealtime,audioFile,checksum} from './connection.js';
 import {CompareAudio,peaks,demoBuffer} from './audio.js';
@@ -78,7 +78,8 @@ async function readCurrentChat(){
   const data=S.data,pid=data.project.id;if(readingChats.has(pid))return;
   const bounds=list.getBoundingClientRect(),top=Math.max(0,bounds.top),bottom=Math.min(innerHeight,bounds.bottom);
   const visible=new Set(Array.from(list.querySelectorAll('[data-message-id]')).filter(el=>{const r=el.getBoundingClientRect();return r.bottom>top&&r.top<bottom;}).map(el=>el.dataset.messageId));
-  const ids=data.messages.filter(m=>!m.request_id&&m.role!==S.user.role&&!m.read_at&&visible.has(m.id)).map(m=>m.id);
+  if(bottom<=top)return;const atBottom=list.scrollHeight-list.scrollTop-list.clientHeight<70;
+  const ids=receivedMessageIds(data.messages,S.user.role,visible,atBottom);
   const readNotes=list.scrollHeight-list.scrollTop-list.clientHeight<70&&visibleNotes().some(n=>!n.read_at&&n.project_id===pid&&n.type==='message'&&!n.target_id);
   if(!ids.length&&!readNotes)return;readingChats.add(pid);
   try{
